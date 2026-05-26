@@ -4,24 +4,22 @@ import { AppState, AppStateStatus } from 'react-native';
 import { DEFAULT_CONFIG } from '@/lib/timer';
 import { useTimerStore } from '@/stores/timer';
 
-// Mounts in _layout.tsx. On every transition to 'active':
-// 1. If a session was running and endTimestamp has passed, commit the phase.
-// 2. If the session ended while backgrounded, the notification already fired —
-//    this reconciliation is the guard against double-counting with the
-//    foreground tick handler (same commitPhaseCompletion idempotency key).
 export function useAppStateReconcile() {
   const appStateRef = useRef(AppState.currentState);
 
+  // AppState transitions: handle session end while backgrounded.
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (next: AppStateStatus) => {
       const prev = appStateRef.current;
       appStateRef.current = next;
 
       if (next !== 'active') return;
-      if (prev === 'active') return; // no-op on initial foreground
+      if (prev === 'active') return;
 
       const state = useTimerStore.getState();
-      if (!state.isRunning || !state.endTimestamp || !state.sessionId) return;
+      // isRunning is in-memory and may not reflect persisted bookmark on some
+      // transition paths — check endTimestamp and sessionId (both persisted).
+      if (!state.endTimestamp || !state.sessionId) return;
 
       const now = Date.now();
       if (now >= state.endTimestamp) {
@@ -32,7 +30,10 @@ export function useAppStateReconcile() {
           config: DEFAULT_CONFIG,
         });
       } else {
-        // Session still running — update display remaining
+        if (!state.isRunning) {
+          // Restore running state lost by a partial-kill that preserved the bookmark
+          useTimerStore.setState({ isRunning: true });
+        }
         state.setDisplayRemainingMs(Math.max(0, state.endTimestamp - now));
       }
     });
@@ -40,14 +41,16 @@ export function useAppStateReconcile() {
     return () => sub.remove();
   }, []);
 
-  // Also run reconciliation on mount (cold launch recovery from persisted bookmark).
+  // Cold-launch recovery: runs once on mount. isRunning is NOT persisted —
+  // the only source of truth for "was there an active session" is the persisted
+  // bookmark fields (sessionId + endTimestamp). Do NOT gate on isRunning here.
   useEffect(() => {
     const state = useTimerStore.getState();
-    if (!state.isRunning || !state.endTimestamp || !state.sessionId) return;
+    if (!state.endTimestamp || !state.sessionId) return;
 
     const now = Date.now();
     if (now >= state.endTimestamp) {
-      // Session ended while app was killed — commit immediately
+      // Session ended while the app was killed — commit and move to next phase.
       state.commitPhaseCompletion({
         sessionId: state.sessionId,
         phaseIndex: state.phaseIndex,
@@ -55,6 +58,8 @@ export function useAppStateReconcile() {
         config: DEFAULT_CONFIG,
       });
     } else {
+      // Session still has time left — restore isRunning and update display.
+      useTimerStore.setState({ isRunning: true });
       state.setDisplayRemainingMs(Math.max(0, state.endTimestamp - now));
     }
   }, []);

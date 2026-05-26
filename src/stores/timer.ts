@@ -161,8 +161,13 @@ export const useTimerStore = create<TimerState>()(
         const state = get();
         const commitKey = `${sessionId}:${phaseIndex}`;
 
-        // Idempotency guard — no-op if already committed
+        // Idempotency guard — write the key synchronously BEFORE any await so
+        // concurrent callers (foreground tick + AppState reconciliation racing)
+        // both see the committed key and the second call no-ops. If we wrote
+        // the key only after the awaits, both calls could read null and both
+        // fire side effects.
         if (state.lastCommittedKey === commitKey) return;
+        set({ lastCommittedKey: commitKey });
 
         await cancelTimerNotification(state.notificationId);
 
@@ -181,7 +186,6 @@ export const useTimerStore = create<TimerState>()(
         const notificationId = await scheduleTimerNotification(endTimestamp, np);
 
         set({
-          lastCommittedKey: commitKey,
           phase: np,
           phaseIndex: newPhaseIndex,
           endTimestamp,
