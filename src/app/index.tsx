@@ -1,98 +1,200 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+import { useEffect } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { PermissionBanner } from '@/components/timer/permission-banner';
+import { DEFAULT_CONFIG, formatCountdown, phaseProgress } from '@/lib/timer';
+import { requestNotificationPermissions } from '@/lib/notifications';
+import { useNotificationPermission } from '@/hooks/use-notification-permission';
+import { useTimerStore } from '@/stores/timer';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
+const PHASE_LABELS: Record<string, string> = {
+  work: 'Focus',
+  shortBreak: 'Short Break',
+  longBreak: 'Long Break',
+};
+
+export default function TimerScreen() {
+  const {
+    phase,
+    isRunning,
+    displayRemainingMs,
+    endTimestamp,
+    start,
+    pause,
+    resume,
+    reset,
+    skip,
+    tick,
+  } = useTimerStore();
+
+  const { status: permStatus, openSettings } = useNotificationPermission();
+
+  // Foreground tick — 250ms interval. Does NOT write to storage.
+  useEffect(() => {
+    if (!isRunning) return;
+    const interval = setInterval(() => {
+      const now = Date.now();
+      tick(now);
+
+      // Foreground session-end detection
+      if (endTimestamp && now >= endTimestamp) {
+        const state = useTimerStore.getState();
+        if (state.sessionId && state.isRunning) {
+          state.commitPhaseCompletion({
+            sessionId: state.sessionId,
+            phaseIndex: state.phaseIndex,
+            phase: state.phase,
+            config: DEFAULT_CONFIG,
+          });
+        }
+      }
+    }, 250);
+    return () => clearInterval(interval);
+  }, [isRunning, endTimestamp, tick]);
+
+  async function handleStart() {
+    // Request permissions on first session start, not on launch
+    await requestNotificationPermissions();
+    await start(DEFAULT_CONFIG);
   }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+
+  const progress = endTimestamp
+    ? phaseProgress(endTimestamp, Date.now(), phase, DEFAULT_CONFIG)
+    : 1;
+
+  const isPaused =
+    !isRunning && displayRemainingMs < DEFAULT_CONFIG.workMs && displayRemainingMs > 0;
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+      {permStatus === 'denied' && <PermissionBanner onOpenSettings={openSettings} />}
+
+      <View style={styles.container}>
+        <Text style={styles.phaseLabel}>{PHASE_LABELS[phase] ?? phase}</Text>
+
+        <Text style={styles.countdown}>{formatCountdown(displayRemainingMs)}</Text>
+
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${progress * 100}%` as `${number}%` }]} />
+        </View>
+
+        <View style={styles.controls}>
+          {!isRunning && !isPaused ? (
+            <ControlButton label="Start" onPress={handleStart} primary />
+          ) : isRunning ? (
+            <>
+              <ControlButton label="Pause" onPress={() => pause()} />
+              <ControlButton label="Skip" onPress={() => skip(DEFAULT_CONFIG)} />
+              <ControlButton label="Reset" onPress={() => reset()} />
+            </>
+          ) : (
+            <>
+              <ControlButton label="Resume" onPress={() => resume(DEFAULT_CONFIG)} primary />
+              <ControlButton label="Reset" onPress={() => reset()} />
+            </>
+          )}
+        </View>
+
+        <SessionCount />
+      </View>
+    </SafeAreaView>
   );
 }
 
-export default function HomeScreen() {
+function SessionCount() {
+  const completedWorkSessions = useTimerStore((s) => s.completedWorkSessions);
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+    <Text style={styles.sessionCount}>
+      {completedWorkSessions} {completedWorkSessions === 1 ? 'session' : 'sessions'} completed
+    </Text>
+  );
+}
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+function ControlButton({
+  label,
+  onPress,
+  primary,
+}: {
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.button, primary && styles.buttonPrimary]}
+      hitSlop={8}
+    >
+      <Text style={[styles.buttonText, primary && styles.buttonTextPrimary]}>{label}</Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: '#E8E6F5',
+  },
   container: {
     flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+    gap: 24,
+    paddingHorizontal: 32,
   },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
+  phaseLabel: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#5A5070',
+    letterSpacing: 2,
     textTransform: 'uppercase',
   },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+  countdown: {
+    fontSize: 80,
+    fontWeight: '300',
+    color: '#2A2040',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -2,
+  },
+  progressTrack: {
+    width: '100%',
+    height: 4,
+    backgroundColor: '#C8C6D8',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#7B68C8',
+    borderRadius: 2,
+  },
+  controls: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  button: {
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#D8D6E8',
+  },
+  buttonPrimary: {
+    backgroundColor: '#7B68C8',
+    paddingHorizontal: 48,
+  },
+  buttonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4A4060',
+  },
+  buttonTextPrimary: {
+    color: '#FFFFFF',
+  },
+  sessionCount: {
+    fontSize: 14,
+    color: '#8A85A0',
+    marginTop: 8,
   },
 });
