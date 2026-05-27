@@ -32,3 +32,26 @@ export const debouncedAsyncStorage = {
   },
   removeItem: (key: string) => AsyncStorage.removeItem(key),
 };
+
+const lastPersistedValues = new Map<string, string>();
+
+export const dedupedImmediateAsyncStorage = {
+  getItem: async (key: string) => {
+    const value = await AsyncStorage.getItem(key);
+    if (value !== null) {
+      lastPersistedValues.set(key, value);
+    }
+    return value;
+  },
+  setItem: (key: string, value: string) => {
+    if (lastPersistedValues.get(key) === value) {
+      return Promise.resolve();
+    }
+    lastPersistedValues.set(key, value);
+    return AsyncStorage.setItem(key, value);
+  },
+  removeItem: (key: string) => {
+    lastPersistedValues.delete(key);
+    return AsyncStorage.removeItem(key);
+  },
+};

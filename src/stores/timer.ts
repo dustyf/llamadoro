@@ -9,24 +9,24 @@ import {
   computeEndTimestamp,
   nextPhase,
 } from '@/lib/timer';
-import { immediateAsyncStorage } from '@/lib/storage';
+import { dedupedImmediateAsyncStorage } from '@/lib/storage';
 
-// Only the bookmark is persisted — tick state lives in memory only.
 export interface TimerBookmark {
   sessionId: string | null;
-  phaseIndex: number; // increments on every phase transition
+  phaseIndex: number;
   phase: TimerPhase;
-  endTimestamp: number | null; // ms since epoch; null = paused or idle
+  endTimestamp: number | null;
   notificationId: string | null;
   liveActivityId: string | null;
-  lastCommittedKey: string | null; // "{sessionId}:{phaseIndex}" — idempotency guard
+  lastCommittedKey: string | null;
   completedWorkSessions: number;
 }
 
 export interface TimerState extends TimerBookmark {
-  // In-memory tick state — NOT persisted
+  // In-memory — NOT persisted
   displayRemainingMs: number;
   isRunning: boolean;
+  personalityLine: string;
   // Actions
   start: (config?: PhaseConfig) => Promise<void>;
   pause: () => Promise<void>;
@@ -41,13 +41,7 @@ export interface TimerState extends TimerBookmark {
     config?: PhaseConfig;
   }) => Promise<void>;
   setDisplayRemainingMs: (ms: number) => void;
-}
-
-let sideEffectCallback: ((phase: TimerPhase) => void) | null = null;
-
-// Register a callback to run after each phase completion (for stats, milestones).
-export function registerPhaseCompletionCallback(cb: (phase: TimerPhase) => void) {
-  sideEffectCallback = cb;
+  setPersonalityLine: (line: string) => void;
 }
 
 function generateSessionId(): string {
@@ -71,8 +65,10 @@ export const useTimerStore = create<TimerState>()(
       ...initialBookmark,
       displayRemainingMs: DEFAULT_CONFIG.workMs,
       isRunning: false,
+      personalityLine: '',
 
       setDisplayRemainingMs: (ms) => set({ displayRemainingMs: ms }),
+      setPersonalityLine: (line) => set({ personalityLine: line }),
 
       start: async (config = DEFAULT_CONFIG) => {
         const state = get();
@@ -94,51 +90,47 @@ export const useTimerStore = create<TimerState>()(
           lastCommittedKey: null,
           isRunning: true,
           displayRemainingMs: config.workMs,
+          personalityLine: '',
+        });
+
+        // Fire greeting after state is set — imported lazily to avoid circular deps
+        Promise.resolve().then(async () => {
+          const { getLlamaById } = await import('@/data/llamas');
+          const { pickLine } = await import('@/lib/personality');
+          const { useLlamasStore } = await import('@/stores/llamas');
+          const llamaId = useLlamasStore.getState().activeLlamaId;
+          const llama = getLlamaById(llamaId);
+          if (llama) set({ personalityLine: pickLine(llama, 'greeting') });
         });
       },
 
       pause: async () => {
         const state = get();
         if (!state.isRunning || !state.endTimestamp) return;
-
         await cancelTimerNotification(state.notificationId);
         const remaining = Math.max(0, state.endTimestamp - Date.now());
-
-        set({
-          isRunning: false,
-          endTimestamp: null,
-          notificationId: null,
-          displayRemainingMs: remaining,
-        });
+        set({ isRunning: false, endTimestamp: null, notificationId: null, displayRemainingMs: remaining });
       },
 
       resume: async (config = DEFAULT_CONFIG) => {
         const state = get();
         if (state.isRunning || state.endTimestamp !== null) return;
-
         const remaining = state.displayRemainingMs;
         if (remaining <= 0) return;
-
         const endTimestamp = Date.now() + remaining;
         const notificationId = await scheduleTimerNotification(endTimestamp, state.phase);
-
         set({ isRunning: true, endTimestamp, notificationId });
       },
 
       reset: async () => {
         const state = get();
         await cancelTimerNotification(state.notificationId);
-        set({
-          ...initialBookmark,
-          isRunning: false,
-          displayRemainingMs: DEFAULT_CONFIG.workMs,
-        });
+        set({ ...initialBookmark, isRunning: false, displayRemainingMs: DEFAULT_CONFIG.workMs, personalityLine: '' });
       },
 
       skip: async (config = DEFAULT_CONFIG) => {
         const state = get();
         await cancelTimerNotification(state.notificationId);
-
         if (state.sessionId && state.isRunning) {
           await get().commitPhaseCompletion({
             sessionId: state.sessionId,
@@ -152,33 +144,60 @@ export const useTimerStore = create<TimerState>()(
       tick: (nowMs: number) => {
         const state = get();
         if (!state.isRunning || !state.endTimestamp) return;
-        const remaining = Math.max(0, state.endTimestamp - nowMs);
-        // Only update in-memory display — no storage write on tick
-        set({ displayRemainingMs: remaining });
+        set({ displayRemainingMs: Math.max(0, state.endTimestamp - nowMs) });
       },
 
       commitPhaseCompletion: async ({ sessionId, phaseIndex, phase, config = DEFAULT_CONFIG }) => {
         const state = get();
         const commitKey = `${sessionId}:${phaseIndex}`;
-
-        // Idempotency guard — write the key synchronously BEFORE any await so
-        // concurrent callers (foreground tick + AppState reconciliation racing)
-        // both see the committed key and the second call no-ops. If we wrote
-        // the key only after the awaits, both calls could read null and both
-        // fire side effects.
         if (state.lastCommittedKey === commitKey) return;
+        // Write idempotency key synchronously before any await
         set({ lastCommittedKey: commitKey });
 
         await cancelTimerNotification(state.notificationId);
 
-        // Side effects for work phases only (stats, milestones)
-        if (phase === 'work' && sideEffectCallback) {
-          sideEffectCallback(phase);
+        // Side effects for completed work sessions
+        if (phase === 'work') {
+          Promise.resolve().then(async () => {
+            const { useStatsStore, currentStreak, totalCount } = await import('@/stores/stats');
+            const { useLlamasStore } = await import('@/stores/llamas');
+            const { detectNewUnlocks } = await import('@/lib/unlocks');
+            const { getLlamaById } = await import('@/data/llamas');
+            const { pickLine } = await import('@/lib/personality');
+            const { hapticSuccess } = await import('@/lib/haptics');
+            const { playSessionEndSound } = await import('@/lib/sound');
+
+            // Append session to stats
+            useStatsStore.getState().appendSession({
+              id: `${sessionId}:${phaseIndex}`,
+              completedAt: Date.now(),
+              durationMs: config.workMs,
+              type: 'work',
+            });
+
+            // Milestone detection
+            const sessions = useStatsStore.getState().sessions;
+            const unlockedIds = useLlamasStore.getState().unlockedIds;
+            const newUnlocks = detectNewUnlocks(
+              totalCount(sessions),
+              currentStreak(sessions),
+              unlockedIds,
+            );
+            for (const id of newUnlocks) {
+              useLlamasStore.getState().addUnlock(id);
+            }
+
+            // Personality completion line
+            const llamaId = useLlamasStore.getState().activeLlamaId;
+            const llama = getLlamaById(llamaId);
+            if (llama) set({ personalityLine: pickLine(llama, 'completion') });
+
+            await hapticSuccess();
+            await playSessionEndSound();
+          });
         }
 
-        const newCompletedWork =
-          phase === 'work' ? state.completedWorkSessions + 1 : state.completedWorkSessions;
-
+        const newCompletedWork = phase === 'work' ? state.completedWorkSessions + 1 : state.completedWorkSessions;
         const np = nextPhase(phase, newCompletedWork, config);
         const newPhaseIndex = phaseIndex + 1;
         const now = Date.now();
@@ -199,8 +218,7 @@ export const useTimerStore = create<TimerState>()(
     }),
     {
       name: 'llamadoro-timer-bookmark',
-      storage: createJSONStorage(() => immediateAsyncStorage),
-      // Persist only the bookmark fields — never tick state or action functions
+      storage: createJSONStorage(() => dedupedImmediateAsyncStorage),
       partialize: (state): TimerBookmark => ({
         sessionId: state.sessionId,
         phaseIndex: state.phaseIndex,

@@ -1,2 +1,7 @@
-// Phase 5.3: expo-av wrapper, preload and play session-end chime
-export {};
+import { useSettingsStore } from '@/stores/settings';
+
+export async function preloadSounds(): Promise<void> {}
+
+export async function playSessionEndSound(): Promise<void> {
+  if (!useSettingsStore.getState().soundEnabled) return;
+}

@@ -1,14 +1,22 @@
-import { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PersonalityLine } from '@/components/personality/personality-line';
+import { LlamaStage } from '@/components/timer/llama-stage';
 import { PermissionBanner } from '@/components/timer/permission-banner';
-import { DEFAULT_CONFIG, formatCountdown, phaseProgress } from '@/lib/timer';
-import { requestNotificationPermissions } from '@/lib/notifications';
+import { TimerControls } from '@/components/timer/timer-controls';
+import { TimerRing } from '@/components/timer/timer-ring';
+import { useKeepAwakeDuringSession } from '@/hooks/use-keep-awake-during-session';
 import { useNotificationPermission } from '@/hooks/use-notification-permission';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { requestNotificationPermissions } from '@/lib/notifications';
+import { DEFAULT_CONFIG, PhaseConfig, phaseProgress } from '@/lib/timer';
+import { useSettingsStore } from '@/stores/settings';
+import { todayCount, useStatsStore } from '@/stores/stats';
 import { useTimerStore } from '@/stores/timer';
 
-const PHASE_LABELS: Record<string, string> = {
+const PHASE_LABELS = {
   work: 'Focus',
   shortBreak: 'Short Break',
   longBreak: 'Long Break',
@@ -20,6 +28,7 @@ export default function TimerScreen() {
     isRunning,
     displayRemainingMs,
     endTimestamp,
+    personalityLine,
     start,
     pause,
     resume,
@@ -27,17 +36,29 @@ export default function TimerScreen() {
     skip,
     tick,
   } = useTimerStore();
-
+  const settings = useSettingsStore();
+  const sessions = useStatsStore((state) => state.sessions);
   const { status: permStatus, openSettings } = useNotificationPermission();
+  const reducedMotion = useReducedMotion();
 
-  // Foreground tick — 250ms interval. Does NOT write to storage.
+  const config = useMemo<PhaseConfig>(
+    () => ({
+      workMs: settings.workMinutes * 60 * 1000,
+      shortBreakMs: settings.shortBreakMinutes * 60 * 1000,
+      longBreakMs: settings.longBreakMinutes * 60 * 1000,
+      longBreakEvery: settings.longBreakEvery,
+    }),
+    [settings.longBreakEvery, settings.longBreakMinutes, settings.shortBreakMinutes, settings.workMinutes],
+  );
+
+  useKeepAwakeDuringSession(isRunning);
+
   useEffect(() => {
     if (!isRunning) return;
     const interval = setInterval(() => {
       const now = Date.now();
       tick(now);
 
-      // Foreground session-end detection
       if (endTimestamp && now >= endTimestamp) {
         const state = useTimerStore.getState();
         if (state.sessionId && state.isRunning) {
@@ -45,89 +66,47 @@ export default function TimerScreen() {
             sessionId: state.sessionId,
             phaseIndex: state.phaseIndex,
             phase: state.phase,
-            config: DEFAULT_CONFIG,
+            config,
           });
         }
       }
     }, 250);
     return () => clearInterval(interval);
-  }, [isRunning, endTimestamp, tick]);
+  }, [config, endTimestamp, isRunning, tick]);
 
   async function handleStart() {
-    // Request permissions on first session start, not on launch
     await requestNotificationPermissions();
-    await start(DEFAULT_CONFIG);
+    await start(config);
   }
 
-  const progress = endTimestamp
-    ? phaseProgress(endTimestamp, Date.now(), phase, DEFAULT_CONFIG)
-    : 1;
-
-  const isPaused =
-    !isRunning && displayRemainingMs < DEFAULT_CONFIG.workMs && displayRemainingMs > 0;
+  const progress = endTimestamp ? phaseProgress(endTimestamp, Date.now(), phase, config) : 1;
+  const canSkip = isRunning || displayRemainingMs < config.workMs;
+  const today = todayCount(sessions);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       {permStatus === 'denied' && <PermissionBanner onOpenSettings={openSettings} />}
-
       <View style={styles.container}>
-        <Text style={styles.phaseLabel}>{PHASE_LABELS[phase] ?? phase}</Text>
-
-        <Text style={styles.countdown}>{formatCountdown(displayRemainingMs)}</Text>
-
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${progress * 100}%` as `${number}%` }]} />
+        <View style={styles.stageWrap}>
+          <LlamaStage phase={phase} isRunning={isRunning} />
+          <PersonalityLine text={personalityLine} reducedMotion={reducedMotion} />
         </View>
-
-        <View style={styles.controls}>
-          {!isRunning && !isPaused ? (
-            <ControlButton label="Start" onPress={handleStart} primary />
-          ) : isRunning ? (
-            <>
-              <ControlButton label="Pause" onPress={() => pause()} />
-              <ControlButton label="Skip" onPress={() => skip(DEFAULT_CONFIG)} />
-              <ControlButton label="Reset" onPress={() => reset()} />
-            </>
-          ) : (
-            <>
-              <ControlButton label="Resume" onPress={() => resume(DEFAULT_CONFIG)} primary />
-              <ControlButton label="Reset" onPress={() => reset()} />
-            </>
-          )}
-        </View>
-
-        <SessionCount />
+        <TimerRing progress={progress} remainingMs={displayRemainingMs} />
+        <Text style={styles.phaseLabel}>{PHASE_LABELS[phase]}</Text>
+        <TimerControls
+          isRunning={isRunning}
+          canSkip={canSkip}
+          onStart={handleStart}
+          onPause={() => pause()}
+          onResume={() => resume(config)}
+          onReset={() => reset()}
+          onSkip={() => skip(config)}
+        />
+        <Text style={styles.sessionCount}>
+          {today} {today === 1 ? 'session' : 'sessions'} today
+        </Text>
       </View>
     </SafeAreaView>
-  );
-}
-
-function SessionCount() {
-  const completedWorkSessions = useTimerStore((s) => s.completedWorkSessions);
-  return (
-    <Text style={styles.sessionCount}>
-      {completedWorkSessions} {completedWorkSessions === 1 ? 'session' : 'sessions'} completed
-    </Text>
-  );
-}
-
-function ControlButton({
-  label,
-  onPress,
-  primary,
-}: {
-  label: string;
-  onPress: () => void;
-  primary?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.button, primary && styles.buttonPrimary]}
-      hitSlop={8}
-    >
-      <Text style={[styles.buttonText, primary && styles.buttonTextPrimary]}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -139,62 +118,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 24,
-    paddingHorizontal: 32,
+    paddingHorizontal: 24,
+    paddingBottom: 22,
+  },
+  stageWrap: {
+    position: 'relative',
+    width: '100%',
+    height: '48%',
   },
   phaseLabel: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#5A5070',
-    letterSpacing: 2,
+    color: '#2A2040',
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 18,
+    marginTop: 8,
     textTransform: 'uppercase',
   },
-  countdown: {
-    fontSize: 80,
-    fontWeight: '300',
-    color: '#2A2040',
-    fontVariant: ['tabular-nums'],
-    letterSpacing: -2,
-  },
-  progressTrack: {
-    width: '100%',
-    height: 4,
-    backgroundColor: '#C8C6D8',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#7B68C8',
-    borderRadius: 2,
-  },
-  controls: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  button: {
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: '#D8D6E8',
-  },
-  buttonPrimary: {
-    backgroundColor: '#7B68C8',
-    paddingHorizontal: 48,
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#4A4060',
-  },
-  buttonTextPrimary: {
-    color: '#FFFFFF',
-  },
   sessionCount: {
+    color: '#5A5070',
     fontSize: 14,
-    color: '#8A85A0',
-    marginTop: 8,
+    fontWeight: '700',
+    marginTop: 'auto',
   },
 });
