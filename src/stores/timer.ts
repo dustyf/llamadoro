@@ -98,9 +98,13 @@ export const useTimerStore = create<TimerState>()(
           const { getLlamaById } = await import('@/data/llamas');
           const { pickLine } = await import('@/lib/personality');
           const { useLlamasStore } = await import('@/stores/llamas');
+          const { useStatsStore, currentStreak } = await import('@/stores/stats');
           const llamaId = useLlamasStore.getState().activeLlamaId;
           const llama = getLlamaById(llamaId);
-          if (llama) set({ personalityLine: pickLine(llama, 'greeting') });
+          const sessions = useStatsStore.getState().sessions;
+          const category =
+            currentStreak(sessions) === 0 && sessions.length > 0 ? 'streakBreak' : 'greeting';
+          if (llama) set({ personalityLine: pickLine(llama, category) });
         });
       },
 
@@ -109,7 +113,12 @@ export const useTimerStore = create<TimerState>()(
         if (!state.isRunning || !state.endTimestamp) return;
         await cancelTimerNotification(state.notificationId);
         const remaining = Math.max(0, state.endTimestamp - Date.now());
-        set({ isRunning: false, endTimestamp: null, notificationId: null, displayRemainingMs: remaining });
+        set({
+          isRunning: false,
+          endTimestamp: null,
+          notificationId: null,
+          displayRemainingMs: remaining,
+        });
       },
 
       resume: async (config = DEFAULT_CONFIG) => {
@@ -125,7 +134,12 @@ export const useTimerStore = create<TimerState>()(
       reset: async () => {
         const state = get();
         await cancelTimerNotification(state.notificationId);
-        set({ ...initialBookmark, isRunning: false, displayRemainingMs: DEFAULT_CONFIG.workMs, personalityLine: '' });
+        set({
+          ...initialBookmark,
+          isRunning: false,
+          displayRemainingMs: DEFAULT_CONFIG.workMs,
+          personalityLine: '',
+        });
       },
 
       skip: async (config = DEFAULT_CONFIG) => {
@@ -197,7 +211,8 @@ export const useTimerStore = create<TimerState>()(
           });
         }
 
-        const newCompletedWork = phase === 'work' ? state.completedWorkSessions + 1 : state.completedWorkSessions;
+        const newCompletedWork =
+          phase === 'work' ? state.completedWorkSessions + 1 : state.completedWorkSessions;
         const np = nextPhase(phase, newCompletedWork, config);
         const newPhaseIndex = phaseIndex + 1;
         const now = Date.now();

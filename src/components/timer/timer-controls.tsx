@@ -22,15 +22,20 @@ export function TimerControls({
   return (
     <View style={styles.controls}>
       {isRunning ? (
-        <Button label="Pause" onPress={onPause} primary />
+        <Button label="Pause" accessibilityLabel="Pause timer" onPress={onPause} primary />
       ) : canSkip ? (
-        <Button label="Resume" onPress={onResume} primary />
+        <Button label="Resume" accessibilityLabel="Resume timer" onPress={onResume} primary />
       ) : (
-        <Button label="Start" onPress={onStart} primary />
+        <Button label="Start" accessibilityLabel="Start focus session" onPress={onStart} primary />
       )}
       <View style={styles.secondaryRow}>
-        <Button label="Reset" onPress={onReset} />
-        <Button label="Skip" onPress={onSkip} disabled={!canSkip && !isRunning} />
+        <Button label="Reset" accessibilityLabel="Reset timer" onPress={onReset} />
+        <Button
+          label="Skip"
+          accessibilityLabel="Skip to next phase"
+          onPress={onSkip}
+          disabled={!canSkip && !isRunning}
+        />
       </View>
     </View>
   );
@@ -38,22 +43,26 @@ export function TimerControls({
 
 function Button({
   label,
+  accessibilityLabel,
   onPress,
   primary,
   disabled,
 }: {
   label: string;
+  accessibilityLabel: string;
   onPress: () => void;
   primary?: boolean;
   disabled?: boolean;
 }) {
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
       onPress={disabled ? undefined : onPress}
       style={[styles.button, primary && styles.primary, disabled && styles.disabled]}
-      hitSlop={8}
-    >
-      <Text style={[styles.buttonText, primary && styles.primaryText, disabled && styles.disabledText]}>
+      hitSlop={8}>
+      <Text
+        style={[styles.buttonText, primary && styles.primaryText, disabled && styles.disabledText]}>
         {label}
       </Text>
     </Pressable>

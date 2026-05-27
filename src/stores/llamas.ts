@@ -11,9 +11,11 @@ interface LlamasState {
   unlockedIds: string[];
   pendingUnlockIds: string[];
   shownUnlockIds: string[];
-  equipped: Record<string, string>;
+  equipped: Record<string, Record<string, string>>;
   setActiveLlama: (id: string) => void;
   addUnlock: (id: string) => void;
+  equipAccessory: (llamaId: string, slot: string, accessoryId: string) => void;
+  unequipAccessory: (llamaId: string, slot: string) => void;
   consumeNextPendingUnlock: () => string | null;
 }
 
@@ -40,6 +42,30 @@ export const useLlamasStore = create<LlamasState>()(
           pendingUnlockIds: state.pendingUnlockIds.includes(id)
             ? state.pendingUnlockIds
             : [...state.pendingUnlockIds, id],
+        });
+      },
+
+      equipAccessory: (llamaId, slot, accessoryId) => {
+        set((state) => ({
+          equipped: {
+            ...state.equipped,
+            [llamaId]: {
+              ...(state.equipped[llamaId] ?? {}),
+              [slot]: accessoryId,
+            },
+          },
+        }));
+      },
+
+      unequipAccessory: (llamaId, slot) => {
+        set((state) => {
+          const { [slot]: _removed, ...llamaEquipped } = state.equipped[llamaId] ?? {};
+          return {
+            equipped: {
+              ...state.equipped,
+              [llamaId]: llamaEquipped,
+            },
+          };
         });
       },
 

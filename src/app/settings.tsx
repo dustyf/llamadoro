@@ -1,35 +1,85 @@
+import { router } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePurchasesStore } from '@/stores/purchases';
 import { ThemePreference, useSettingsStore } from '@/stores/settings';
 
 export default function SettingsScreen() {
   const settings = useSettingsStore();
+  const hasFullUnlock = usePurchasesStore((state) => state.entitlements.fullUnlock);
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Settings</Text>
         <Section title="Timer Settings">
-          <LockedRow label="Work length" value={`${settings.workMinutes} min`} />
-          <LockedRow label="Short break" value={`${settings.shortBreakMinutes} min`} />
-          <LockedRow label="Long break" value={`${settings.longBreakMinutes} min`} />
-          <LockedRow label="Long break every" value={`${settings.longBreakEvery} sessions`} />
+          <StepperRow
+            label="Work length"
+            value={settings.workMinutes}
+            suffix="min"
+            min={5}
+            max={90}
+            step={5}
+            hasFullUnlock={hasFullUnlock}
+            onChange={settings.setWorkMinutes}
+          />
+          <StepperRow
+            label="Short break"
+            value={settings.shortBreakMinutes}
+            suffix="min"
+            min={1}
+            max={30}
+            step={1}
+            hasFullUnlock={hasFullUnlock}
+            onChange={settings.setShortBreakMinutes}
+          />
+          <StepperRow
+            label="Long break"
+            value={settings.longBreakMinutes}
+            suffix="min"
+            min={5}
+            max={60}
+            step={5}
+            hasFullUnlock={hasFullUnlock}
+            onChange={settings.setLongBreakMinutes}
+          />
+          <StepperRow
+            label="Long break every"
+            value={settings.longBreakEvery}
+            suffix="sessions"
+            min={2}
+            max={8}
+            step={1}
+            hasFullUnlock={hasFullUnlock}
+            onChange={settings.setLongBreakEvery}
+          />
         </Section>
         <Section title="Preferences">
-          <ToggleRow label="Sound" value={settings.soundEnabled} onValueChange={settings.setSoundEnabled} />
-          <ToggleRow label="Haptics" value={settings.hapticsEnabled} onValueChange={settings.setHapticsEnabled} />
+          <ToggleRow
+            label="Sound"
+            value={settings.soundEnabled}
+            onValueChange={settings.setSoundEnabled}
+          />
+          <ToggleRow
+            label="Haptics"
+            value={settings.hapticsEnabled}
+            onValueChange={settings.setHapticsEnabled}
+          />
           <ToggleRow
             label="Reduced motion"
             value={settings.reducedMotion}
             onValueChange={settings.setReducedMotion}
           />
-          <ToggleRow label="Keep awake" value={settings.keepAwake} onValueChange={settings.setKeepAwake} />
+          <ToggleRow
+            label="Keep awake"
+            value={settings.keepAwake}
+            onValueChange={settings.setKeepAwake}
+          />
           <ThemeRow value={settings.theme} onChange={settings.setTheme} />
           <Pressable
             style={styles.row}
-            onPress={() => Alert.alert('Restore Purchases', 'Nothing to restore')}
-          >
+            onPress={() => Alert.alert('Restore Purchases', 'Nothing to restore')}>
             <Text style={styles.rowLabel}>Restore Purchases</Text>
           </Pressable>
         </Section>
@@ -47,12 +97,80 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function LockedRow({ label, value }: { label: string; value: string }) {
+function StepperRow({
+  label,
+  value,
+  suffix,
+  min,
+  max,
+  step,
+  hasFullUnlock,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  suffix: string;
+  min: number;
+  max: number;
+  step: number;
+  hasFullUnlock: boolean;
+  onChange: (value: number) => void;
+}) {
+  function handleLockedPress() {
+    Alert.alert('Upgrade to Premium to customize your timer intervals.');
+    router.push('/paywall');
+  }
+
+  function handleChange(direction: -1 | 1) {
+    if (!hasFullUnlock) {
+      handleLockedPress();
+      return;
+    }
+    onChange(Math.min(max, Math.max(min, value + direction * step)));
+  }
+
   return (
-    <View style={[styles.row, styles.disabled]}>
+    <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>Lock {value}</Text>
+      <View style={styles.stepper}>
+        <StepperButton
+          label="-"
+          disabled={!hasFullUnlock || value <= min}
+          onPress={() => handleChange(-1)}
+        />
+        <Text style={styles.rowValue}>
+          {value} {suffix}
+        </Text>
+        <StepperButton
+          label="+"
+          disabled={!hasFullUnlock || value >= max}
+          onPress={() => handleChange(1)}
+        />
+      </View>
     </View>
+  );
+}
+
+function StepperButton({
+  label,
+  disabled,
+  onPress,
+}: {
+  label: string;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      onPress={onPress}
+      style={[styles.stepperButton, disabled && styles.stepperButtonDisabled]}
+      hitSlop={8}>
+      <Text style={[styles.stepperButtonText, disabled && styles.stepperButtonTextDisabled]}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -68,7 +186,12 @@ function ToggleRow({
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Switch value={value} onValueChange={onValueChange} trackColor={{ true: '#B9AEE5' }} thumbColor={value ? '#7B68C8' : '#F7F5FC'} />
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ true: '#B9AEE5' }}
+        thumbColor={value ? '#7B68C8' : '#F7F5FC'}
+      />
     </View>
   );
 }
@@ -89,8 +212,7 @@ function ThemeRow({
           <Pressable
             key={option}
             onPress={() => onChange(option)}
-            style={[styles.segment, value === option && styles.segmentActive]}
-          >
+            style={[styles.segment, value === option && styles.segmentActive]}>
             <Text style={[styles.segmentText, value === option && styles.segmentTextActive]}>
               {option}
             </Text>
@@ -138,9 +260,6 @@ const styles = StyleSheet.create({
     borderBottomColor: '#D8D6E8',
     paddingHorizontal: 16,
   },
-  disabled: {
-    opacity: 0.55,
-  },
   rowLabel: {
     color: '#2A2040',
     fontSize: 16,
@@ -150,6 +269,31 @@ const styles = StyleSheet.create({
     color: '#5A5070',
     fontSize: 14,
     fontWeight: '700',
+  },
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  stepperButton: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: '#7B68C8',
+  },
+  stepperButtonDisabled: {
+    backgroundColor: '#D8D6E8',
+  },
+  stepperButtonText: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
+    lineHeight: 22,
+  },
+  stepperButtonTextDisabled: {
+    color: '#6F6880',
   },
   themeRow: {
     gap: 10,

@@ -59,8 +59,8 @@ export function LlamaStage({ phase, isRunning }: LlamaStageProps) {
   }));
 
   return (
-    <View style={styles.stage}>
-      <Animated.View style={[styles.imageWrap, animatedStyle]}>
+    <View style={styles.stage} accessibilityLabel={`${llama.name} llama`}>
+      <Animated.View accessibilityElementsHidden style={[styles.imageWrap, animatedStyle]}>
         <Image source={source} style={styles.image} contentFit="contain" />
       </Animated.View>
     </View>

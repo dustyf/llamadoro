@@ -13,7 +13,12 @@ interface LlamaCardProps {
 
 export function LlamaCard({ llama, unlocked, active, requirement, onPress }: LlamaCardProps) {
   return (
-    <Pressable onPress={onPress} style={[styles.card, active && styles.active]} hitSlop={4}>
+    <Pressable
+      accessibilityLabel={`${llama.name}, ${unlocked ? 'active llama' : 'locked'}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.card, active && styles.active]}
+      hitSlop={4}>
       <Image source={llama.art.idle} style={styles.image} contentFit="contain" />
       <Text style={styles.name}>{llama.name}</Text>
       {!unlocked && (
