@@ -12,6 +12,8 @@ import { useNotificationPermission } from '@/hooks/use-notification-permission';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { requestNotificationPermissions } from '@/lib/notifications';
 import { DEFAULT_CONFIG, PhaseConfig, phaseProgress } from '@/lib/timer';
+import { getLlamaById } from '@/data/llamas';
+import { useLlamasStore } from '@/stores/llamas';
 import { useSettingsStore } from '@/stores/settings';
 import { todayCount, useStatsStore } from '@/stores/stats';
 import { useTimerStore } from '@/stores/timer';
@@ -38,6 +40,7 @@ export default function TimerScreen() {
   } = useTimerStore();
   const settings = useSettingsStore();
   const sessions = useStatsStore((state) => state.sessions);
+  const activeLlamaId = useLlamasStore((state) => state.activeLlamaId);
   const { status: permStatus, openSettings } = useNotificationPermission();
   const reducedMotion = useReducedMotion();
 
@@ -82,6 +85,7 @@ export default function TimerScreen() {
   const progress = endTimestamp ? phaseProgress(endTimestamp, Date.now(), phase, config) : 1;
   const canSkip = isRunning || displayRemainingMs < config.workMs;
   const today = todayCount(sessions);
+  const llamaName = getLlamaById(activeLlamaId).name;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
@@ -105,6 +109,7 @@ export default function TimerScreen() {
         <Text style={styles.sessionCount}>
           {today} {today === 1 ? 'session' : 'sessions'} today
         </Text>
+        <Text style={styles.activeLlamaName}>with {llamaName}</Text>
       </View>
     </SafeAreaView>
   );
@@ -139,5 +144,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     marginTop: 'auto',
+  },
+  activeLlamaName: {
+    color: '#8A85A0',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 4,
   },
 });

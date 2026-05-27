@@ -9,9 +9,17 @@ interface LlamaCardProps {
   active: boolean;
   requirement?: string;
   onPress: () => void;
+  onCustomize?: () => void;
 }
 
-export function LlamaCard({ llama, unlocked, active, requirement, onPress }: LlamaCardProps) {
+export function LlamaCard({
+  llama,
+  unlocked,
+  active,
+  requirement,
+  onPress,
+  onCustomize,
+}: LlamaCardProps) {
   return (
     <Pressable
       accessibilityLabel={`${llama.name}, ${unlocked ? 'active llama' : 'locked'}`}
@@ -21,6 +29,16 @@ export function LlamaCard({ llama, unlocked, active, requirement, onPress }: Lla
       hitSlop={4}>
       <Image source={llama.art.idle} style={styles.image} contentFit="contain" />
       <Text style={styles.name}>{llama.name}</Text>
+      {onCustomize && (
+        <Pressable
+          accessibilityLabel={`Customize ${llama.name}`}
+          accessibilityRole="button"
+          onPress={onCustomize}
+          style={styles.customizeButton}
+          hitSlop={4}>
+          <Text style={styles.customizeText}>Customize</Text>
+        </Pressable>
+      )}
       {!unlocked && (
         <View style={styles.lockOverlay}>
           <Text style={styles.lockText}>{llama.tier === 'paid' ? 'Lock' : requirement}</Text>
@@ -52,6 +70,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  customizeButton: {
+    alignSelf: 'center',
+    borderRadius: 8,
+    backgroundColor: '#7B68C8',
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  customizeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
   lockOverlay: {
     position: 'absolute',

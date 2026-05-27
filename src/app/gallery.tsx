@@ -1,8 +1,10 @@
 import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AccessoryPicker } from '@/components/gallery/accessory-picker';
 import { LlamaCard } from '@/components/gallery/llama-card';
 import { LLAMAS } from '@/data/llamas';
 import { useLlamasStore } from '@/stores/llamas';
@@ -16,10 +18,16 @@ function requirementText(llama: Llama): string | undefined {
 
 export default function GalleryScreen() {
   const { activeLlamaId, unlockedIds, setActiveLlama } = useLlamasStore();
+  const [pickerLlamaId, setPickerLlamaId] = useState<string | null>(null);
+  const pickerLlama = LLAMAS.find((llama) => llama.id === pickerLlamaId);
 
   function handlePress(llama: Llama) {
     const unlocked = unlockedIds.includes(llama.id);
     if (unlocked) {
+      if (llama.id === activeLlamaId) {
+        setPickerLlamaId(llama.id);
+        return;
+      }
       setActiveLlama(llama.id);
       return;
     }
@@ -45,10 +53,21 @@ export default function GalleryScreen() {
               active={activeLlamaId === item.id}
               requirement={requirementText(item)}
               onPress={() => handlePress(item)}
+              onCustomize={
+                unlockedIds.includes(item.id) && activeLlamaId === item.id
+                  ? () => setPickerLlamaId(item.id)
+                  : undefined
+              }
             />
           </View>
         )}
         keyExtractor={(item) => item.id}
+      />
+      <AccessoryPicker
+        llamaId={pickerLlamaId ?? ''}
+        llamaName={pickerLlama?.name ?? ''}
+        visible={pickerLlamaId !== null}
+        onClose={() => setPickerLlamaId(null)}
       />
     </SafeAreaView>
   );

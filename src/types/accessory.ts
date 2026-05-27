@@ -6,8 +6,7 @@ export interface Accessory {
   id: string;
   name: string;
   slot: AccessorySlot;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  asset: any;
-  tier: 'free' | 'paid' | 'earned';
-  unlockCondition?: UnlockCondition;
+  asset: number;
+  tier: 'earned' | 'paid';
+  unlockCondition: UnlockCondition;
 }
