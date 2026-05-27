@@ -1,2 +1,2 @@
-// Phase 3.6: LlamaCard, LlamaGrid, LockBadge, AccessoryPicker
-export {};
+export { AccessoryPicker } from './accessory-picker';
+export { LlamaCard } from './llama-card';
