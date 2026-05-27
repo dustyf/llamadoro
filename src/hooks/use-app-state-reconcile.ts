@@ -1,8 +1,19 @@
 import { useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 
-import { DEFAULT_CONFIG } from '@/lib/timer';
+import { PhaseConfig } from '@/lib/timer';
+import { useSettingsStore } from '@/stores/settings';
 import { useTimerStore } from '@/stores/timer';
+
+function configFromSettings(): PhaseConfig {
+  const s = useSettingsStore.getState();
+  return {
+    workMs: s.workMinutes * 60 * 1000,
+    shortBreakMs: s.shortBreakMinutes * 60 * 1000,
+    longBreakMs: s.longBreakMinutes * 60 * 1000,
+    longBreakEvery: s.longBreakEvery,
+  };
+}
 
 export function useAppStateReconcile() {
   const appStateRef = useRef(AppState.currentState);
@@ -27,7 +38,7 @@ export function useAppStateReconcile() {
           sessionId: state.sessionId,
           phaseIndex: state.phaseIndex,
           phase: state.phase,
-          config: DEFAULT_CONFIG,
+          config: configFromSettings(),
         });
       } else {
         if (!state.isRunning) {
@@ -55,7 +66,7 @@ export function useAppStateReconcile() {
         sessionId: state.sessionId,
         phaseIndex: state.phaseIndex,
         phase: state.phase,
-        config: DEFAULT_CONFIG,
+        config: configFromSettings(),
       });
     } else {
       // Session still has time left — restore isRunning and update display.

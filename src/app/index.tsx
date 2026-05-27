@@ -11,7 +11,7 @@ import { useKeepAwakeDuringSession } from '@/hooks/use-keep-awake-during-session
 import { useNotificationPermission } from '@/hooks/use-notification-permission';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { requestNotificationPermissions } from '@/lib/notifications';
-import { DEFAULT_CONFIG, PhaseConfig, phaseProgress } from '@/lib/timer';
+import { PhaseConfig, phaseProgress } from '@/lib/timer';
 import { getLlamaById } from '@/data/llamas';
 import { useLlamasStore } from '@/stores/llamas';
 import { useSettingsStore } from '@/stores/settings';
